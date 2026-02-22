@@ -52,6 +52,7 @@ jobs:
             --name "ClaudeChat" \
             --icon "assets/icon.ico" \
             --add-data "claude_chat:claude_chat" \
+            --add-data "assets:assets" \
             gui_main.py
 
       - name: Build with PyInstaller (Windows)
@@ -62,6 +63,7 @@ jobs:
             --name "ClaudeChat" `
             --icon "assets/icon.ico" `
             --add-data "claude_chat;claude_chat" `
+            --add-data "assets;assets" `
             gui_main.py
 
       - name: Rename artifact (Linux/macOS)

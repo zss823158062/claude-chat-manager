@@ -24,7 +24,8 @@ class App(ctk.CTk):
         self.geometry("1200x700")
 
         # 设置窗口图标
-        icon_path = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+        base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent.parent))
+        icon_path = base / "assets" / "icon.ico"
         if icon_path.exists():
             self.iconbitmap(str(icon_path))
 
