@@ -266,3 +266,69 @@ def delete_session(session_id):
         import shutil
         shutil.rmtree(companion_dir)
     return True
+
+
+# ── 数据分析采集 ──────────────────────────────────────────
+
+
+def collect_token_stats():
+    """遍历所有 JSONL，提取每条 assistant 消息的 token 用量"""
+    if not PROJECTS_DIR.exists():
+        return []
+
+    records = []
+    for proj_dir in PROJECTS_DIR.iterdir():
+        if not proj_dir.is_dir():
+            continue
+        for f in proj_dir.glob("*.jsonl"):
+            session_id = f.stem
+            project = _get_project_display(proj_dir.name, session_id)
+            with open(f, encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if obj.get("type") != "assistant":
+                        continue
+                    msg = obj.get("message", {})
+                    usage = msg.get("usage")
+                    if not usage:
+                        continue
+                    records.append({
+                        "session_id": session_id,
+                        "project": project,
+                        "project_dirname": proj_dir.name,
+                        "model": msg.get("model", "unknown"),
+                        "timestamp": obj.get("timestamp", ""),
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+                        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+                    })
+    return records
+
+
+def collect_session_activity():
+    """从 history.jsonl 提取活动时间线"""
+    if not HISTORY_FILE.exists():
+        return []
+
+    records = []
+    for line in open(HISTORY_FILE, encoding="utf-8"):
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts = obj.get("timestamp")
+        if not ts:
+            continue
+        dt = datetime.fromtimestamp(ts / 1000)
+        records.append({
+            "session_id": obj.get("sessionId", ""),
+            "project": obj.get("project", ""),
+            "timestamp_ms": ts,
+            "hour": dt.hour,
+            "date": dt.strftime("%Y-%m-%d"),
+        })
+    return records

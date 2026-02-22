@@ -57,6 +57,7 @@ class App(ctk.CTk):
             ("搜索", self._on_search),
             ("导出", self._on_export),
             ("删除", self._on_delete),
+            ("分析", self._on_analytics),
             ("刷新", self._on_refresh),
         ], start=1):
             ctk.CTkButton(toolbar, text=text, width=60, command=cmd).grid(
@@ -271,6 +272,10 @@ class App(ctk.CTk):
             return
         self._delete_session(self._current_session_id)
 
+    def _on_analytics(self):
+        from claude_chat.analytics import AnalyticsWindow
+        AnalyticsWindow(self)
+
     def _on_refresh(self):
         db._session_project_cache = None
         self._current_project = None
@@ -296,6 +301,8 @@ class App(ctk.CTk):
                        activeforeground="white", relief="flat")
         menu.add_command(label="导出", command=lambda: self._export_session(session_id))
         menu.add_command(label="删除", command=lambda: self._delete_session(session_id))
+        menu.add_separator()
+        menu.add_command(label="分析", command=lambda: self._analyze_session(session_id))
         menu.tk_popup(event.x_root, event.y_root)
 
     def _show_project_menu(self, event, dirname):
@@ -304,7 +311,17 @@ class App(ctk.CTk):
                        activeforeground="white", relief="flat")
         menu.add_command(label="导出所有会话", command=lambda: self._export_project(dirname))
         menu.add_command(label="删除所有会话", command=lambda: self._delete_project(dirname))
+        menu.add_separator()
+        menu.add_command(label="分析", command=lambda: self._analyze_project(dirname))
         menu.tk_popup(event.x_root, event.y_root)
+
+    def _analyze_session(self, session_id):
+        from claude_chat.analytics import AnalyticsWindow
+        AnalyticsWindow(self, session_id=session_id)
+
+    def _analyze_project(self, dirname):
+        from claude_chat.analytics import AnalyticsWindow
+        AnalyticsWindow(self, project_dirname=dirname)
 
     def _export_session(self, session_id):
         filepath = export_session(session_id)
