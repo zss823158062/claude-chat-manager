@@ -19,7 +19,7 @@ class App(ctk.CTk):
             except Exception:
                 pass
 
-        self.title("Claude 会话管理器")
+        self.title("Claude Code 会话管理器")
         self.geometry("1200x700")
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
