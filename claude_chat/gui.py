@@ -1,6 +1,7 @@
 import threading
 import subprocess
 import sys
+from pathlib import Path
 import tkinter as tk
 import customtkinter as ctk
 from claude_chat import db
@@ -21,6 +22,12 @@ class App(ctk.CTk):
 
         self.title("Claude Code 会话管理器")
         self.geometry("1200x700")
+
+        # 设置窗口图标
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+        if icon_path.exists():
+            self.iconbitmap(str(icon_path))
+
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
