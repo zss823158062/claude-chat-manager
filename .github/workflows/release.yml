@@ -14,13 +14,13 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: claude-chat-windows
+            artifact: windows
             ext: .exe
           - os: macos-latest
-            artifact: claude-chat-macos
+            artifact: macos
             ext: ""
           - os: ubuntu-latest
-            artifact: claude-chat-linux
+            artifact: linux
             ext: ""
 
     runs-on: ${{ matrix.os }}
@@ -62,26 +62,23 @@ jobs:
             --add-data "claude_chat;claude_chat" `
             gui_main.py
 
-      - name: Prepare artifact (Linux/macOS)
+      - name: Rename artifact (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          cd dist
-          chmod +x ClaudeChat
-          tar czf ${{ matrix.artifact }}.tar.gz ClaudeChat
+          chmod +x dist/ClaudeChat
+          mv dist/ClaudeChat dist/ClaudeChat-${{ matrix.artifact }}
 
-      - name: Prepare artifact (Windows)
+      - name: Rename artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/ClaudeChat.exe -DestinationPath dist/${{ matrix.artifact }}.zip
+          Move-Item dist/ClaudeChat.exe dist/ClaudeChat-${{ matrix.artifact }}.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            dist/${{ matrix.artifact }}.tar.gz
-            dist/${{ matrix.artifact }}.zip
+          path: dist/ClaudeChat-${{ matrix.artifact }}*
 
   release:
     needs: build
@@ -121,9 +118,9 @@ jobs:
             echo ""
             echo "| 平台 | 文件 |"
             echo "|------|------|"
-            echo "| Windows | \`claude-chat-windows.zip\` |"
-            echo "| macOS | \`claude-chat-macos.tar.gz\` |"
-            echo "| Linux | \`claude-chat-linux.tar.gz\` |"
+            echo "| Windows | \`ClaudeChat-windows.exe\` |"
+            echo "| macOS | \`ClaudeChat-macos\` |"
+            echo "| Linux | \`ClaudeChat-linux\` |"
 
             echo "NOTES_EOF"
           } >> "$GITHUB_OUTPUT"
@@ -142,6 +139,4 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            artifacts/claude-chat-windows/*.zip
-            artifacts/claude-chat-macos/*.tar.gz
-            artifacts/claude-chat-linux/*.tar.gz
+            artifacts/**/*
