@@ -43,7 +43,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller Pillow
 
       - name: Build with PyInstaller (Linux/macOS)
         if: runner.os != 'Windows'
