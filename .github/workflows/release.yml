@@ -1,0 +1,147 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: claude-chat-windows
+            ext: .exe
+          - os: macos-latest
+            artifact: claude-chat-macos
+            ext: ""
+          - os: ubuntu-latest
+            artifact: claude-chat-linux
+            ext: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          pyinstaller --noconfirm --onefile --windowed \
+            --name "ClaudeChat" \
+            --add-data "claude_chat:claude_chat" \
+            gui_main.py
+
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --onefile --windowed `
+            --name "ClaudeChat" `
+            --add-data "claude_chat;claude_chat" `
+            gui_main.py
+
+      - name: Prepare artifact (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cd dist
+          chmod +x ClaudeChat
+          tar czf ${{ matrix.artifact }}.tar.gz ClaudeChat
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/ClaudeChat.exe -DestinationPath dist/${{ matrix.artifact }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/${{ matrix.artifact }}.tar.gz
+            dist/${{ matrix.artifact }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${TAG}$" | head -n1)
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "notes<<NOTES_EOF"
+
+            if [ -n "$PREV_TAG" ]; then
+              echo "## 更新内容 ($PREV_TAG → $TAG)"
+              echo ""
+              git log "${PREV_TAG}..${TAG}" --pretty=format:"- %s" --no-merges
+            else
+              echo "## 首次发布 $TAG"
+              echo ""
+              git log --pretty=format:"- %s" --no-merges
+            fi
+
+            echo ""
+            echo ""
+            echo "---"
+            echo ""
+            echo "### 下载说明"
+            echo ""
+            echo "| 平台 | 文件 |"
+            echo "|------|------|"
+            echo "| Windows | \`claude-chat-windows.zip\` |"
+            echo "| macOS | \`claude-chat-macos.tar.gz\` |"
+            echo "| Linux | \`claude-chat-linux.tar.gz\` |"
+
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          name: ${{ steps.notes.outputs.tag }}
+          body: ${{ steps.notes.outputs.notes }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/claude-chat-windows/*.zip
+            artifacts/claude-chat-macos/*.tar.gz
+            artifacts/claude-chat-linux/*.tar.gz

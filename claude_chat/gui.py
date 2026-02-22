@@ -40,7 +40,12 @@ class App(ctk.CTk):
 
         self.bind("<Control-f>", lambda e: self._search_entry.focus_set())
 
-        self._load_projects()
+        self._status_label.configure(text="加载中...")
+        threading.Thread(target=self._initial_load, daemon=True).start()
+
+    def _initial_load(self):
+        projects = db.list_projects()
+        self.after(0, lambda: self._render_projects(projects))
 
     # ── UI 构建 ──────────────────────────────────────────
 
@@ -119,6 +124,9 @@ class App(ctk.CTk):
 
     def _load_projects(self):
         projects = db.list_projects()
+        self._render_projects(projects)
+
+    def _render_projects(self, projects):
 
         for btn in self._project_buttons:
             btn.destroy()
@@ -278,6 +286,9 @@ class App(ctk.CTk):
 
     def _on_refresh(self):
         db._session_project_cache = None
+        db._first_message_cache = None
+        db._token_stats_cache = None
+        db._activity_cache = None
         self._current_project = None
         self._current_session_id = None
 

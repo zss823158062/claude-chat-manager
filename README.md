@@ -61,6 +61,17 @@ gui_main.py         # 启动入口
 - Python 3.10+
 - [customtkinter](https://github.com/TomSchimansky/CustomTkinter) — GUI 框架
 
+## 发布
+
+推送 `v*` 格式的 tag 会自动触发 GitHub Actions，构建 Windows / macOS / Linux 三平台可执行文件并发布到 Release：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Release 页面会自动生成更新说明（基于两次 tag 之间的 commit 记录）。
+
 ## License
 
 MIT

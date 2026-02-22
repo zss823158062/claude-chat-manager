@@ -5,6 +5,9 @@ from .config import PROJECTS_DIR, HISTORY_FILE
 
 
 _session_project_cache = None
+_first_message_cache = None
+_token_stats_cache = None
+_activity_cache = None
 
 
 def _build_session_project_map():
@@ -103,27 +106,30 @@ def list_projects():
     if not PROJECTS_DIR.exists():
         return []
 
-    # 从 history 建立目录名 → 真实路径的映射
-    dir_to_real = {}
+    # 一次遍历建立 dirname → session_ids
+    dir_sessions = {}
+    for d in sorted(PROJECTS_DIR.iterdir()):
+        if d.is_dir():
+            files = list(d.glob("*.jsonl"))
+            dir_sessions[d.name] = [f.stem for f in files]
+
+    # 从 session → project 映射反查 dirname → display_name
     mapping = _build_session_project_map()
-    for sid, proj_path in mapping.items():
-        # 找到这个 session 属于哪个目录
-        for d in PROJECTS_DIR.iterdir():
-            if d.is_dir() and (d / f"{sid}.jsonl").exists():
-                dir_to_real[d.name] = proj_path
+    dir_to_real = {}
+    for dirname, sids in dir_sessions.items():
+        for sid in sids:
+            if sid in mapping:
+                dir_to_real[dirname] = mapping[sid]
                 break
 
     projects = []
-    for d in sorted(PROJECTS_DIR.iterdir()):
-        if d.is_dir():
-            session_files = list(d.glob("*.jsonl"))
-            display = dir_to_real.get(d.name, d.name)
-            projects.append({
-                "dirname": d.name,
-                "display_name": display,
-                "session_count": len(session_files),
-                "path": d,
-            })
+    for dirname, sids in dir_sessions.items():
+        projects.append({
+            "dirname": dirname,
+            "display_name": dir_to_real.get(dirname, dirname),
+            "session_count": len(sids),
+            "path": PROJECTS_DIR / dirname,
+        })
     return projects
 
 
@@ -154,21 +160,30 @@ def list_sessions(project_dirname=None):
     return results
 
 
-def _get_first_message(session_id):
-    """从 history.jsonl 获取某会话的第一条用户消息"""
+def _build_first_message_map():
+    """一次性从 history.jsonl 建立 sessionId → 第一条用户消息的映射"""
+    global _first_message_cache
+    if _first_message_cache is not None:
+        return _first_message_cache
+    _first_message_cache = {}
     if not HISTORY_FILE.exists():
-        return ""
+        return _first_message_cache
     with open(HISTORY_FILE, encoding="utf-8") as f:
         for line in f:
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if obj.get("sessionId") == session_id:
-                display = obj.get("display", "")
-                if display and not display.startswith("/"):
-                    return display
-    return ""
+            sid = obj.get("sessionId", "")
+            display = obj.get("display", "")
+            if sid and display and not display.startswith("/") and sid not in _first_message_cache:
+                _first_message_cache[sid] = display
+    return _first_message_cache
+
+
+def _get_first_message(session_id):
+    """从缓存获取某会话的第一条用户消息"""
+    return _build_first_message_map().get(session_id, "")
 
 
 def get_session_detail(session_id):
@@ -273,6 +288,10 @@ def delete_session(session_id):
 
 def collect_token_stats():
     """遍历所有 JSONL，提取每条 assistant 消息的 token 用量"""
+    global _token_stats_cache
+    if _token_stats_cache is not None:
+        return _token_stats_cache
+
     if not PROJECTS_DIR.exists():
         return []
 
@@ -306,11 +325,16 @@ def collect_token_stats():
                         "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
                         "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
                     })
+    _token_stats_cache = records
     return records
 
 
 def collect_session_activity():
     """从 history.jsonl 提取活动时间线"""
+    global _activity_cache
+    if _activity_cache is not None:
+        return _activity_cache
+
     if not HISTORY_FILE.exists():
         return []
 
@@ -331,4 +355,5 @@ def collect_session_activity():
             "hour": dt.hour,
             "date": dt.strftime("%Y-%m-%d"),
         })
+    _activity_cache = records
     return records
