@@ -1,6 +1,6 @@
 # Claude Chat Manager
 
-Claude Code 本地会话管理器，提供 CLI 和 GUI 两种界面，用于浏览、搜索、导出、删除和分析 Claude Code 的聊天记录。
+Claude Code 本地会话管理器，用于浏览、搜索、导出、删除和分析 Claude Code 的聊天记录。
 
 直接读取 `~/.claude` 目录下的 JSONL 会话文件，无需额外数据库。
 
@@ -40,32 +40,8 @@ pip install -r requirements.txt
 
 ## 使用
 
-### GUI
-
 ```bash
 python gui_main.py
-```
-
-### CLI
-
-```bash
-# 列出所有项目
-python main.py projects
-
-# 列出某项目的会话
-python main.py ls <project>
-
-# 查看会话内容
-python main.py show <session_id>
-
-# 搜索消息
-python main.py search <keyword>
-
-# 导出会话为 Markdown
-python main.py export <session_id>
-
-# 删除会话
-python main.py rm <session_id>
 ```
 
 ## 项目结构
@@ -75,17 +51,14 @@ claude_chat/
 ├── config.py       # 路径配置
 ├── db.py           # 数据层（解析 JSONL、搜索、统计）
 ├── export.py       # Markdown 导出
-├── cli.py          # CLI 命令
 ├── gui.py          # GUI 主界面
 └── analytics.py    # 数据分析弹窗与图表
-main.py             # CLI 入口
-gui_main.py         # GUI 入口
+gui_main.py         # 启动入口
 ```
 
 ## 依赖
 
 - Python 3.10+
-- [click](https://click.palletsprojects.com/) — CLI 框架
 - [customtkinter](https://github.com/TomSchimansky/CustomTkinter) — GUI 框架
 
 ## License
