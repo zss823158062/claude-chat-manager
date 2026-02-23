@@ -20,7 +20,7 @@ class App(ctk.CTk):
             except Exception:
                 pass
 
-        self.title("Claude Code 会话管理器")
+        self.title("AI 会话管理器")
         self.geometry("1200x700")
 
         # 设置窗口图标
@@ -34,8 +34,10 @@ class App(ctk.CTk):
 
         self._current_project = None
         self._current_session_id = None
+        self._current_codex_path = None  # Codex 选中的文件路径
         self._project_buttons = []
         self._session_buttons = []
+        self._source = "claude"  # "claude" or "codex"
 
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=0)
@@ -60,10 +62,18 @@ class App(ctk.CTk):
     def _build_toolbar(self):
         toolbar = ctk.CTkFrame(self, height=40)
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=5, pady=(5, 0))
-        toolbar.grid_columnconfigure(0, weight=1)
+        toolbar.grid_columnconfigure(1, weight=1)
+
+        # 数据源切换
+        self._source_switch = ctk.CTkSegmentedButton(
+            toolbar, values=["Claude Code", "Codex"],
+            command=self._on_source_switch, width=200,
+        )
+        self._source_switch.set("Claude Code")
+        self._source_switch.grid(row=0, column=0, padx=(5, 8), pady=5)
 
         self._search_entry = ctk.CTkEntry(toolbar, placeholder_text="搜索消息内容...")
-        self._search_entry.grid(row=0, column=0, sticky="ew", padx=(5, 2), pady=5)
+        self._search_entry.grid(row=0, column=1, sticky="ew", padx=(2, 2), pady=5)
         self._search_entry.bind("<Return>", lambda e: self._on_search())
 
         for i, (text, cmd) in enumerate([
@@ -72,7 +82,7 @@ class App(ctk.CTk):
             ("删除", self._on_delete),
             ("分析", self._on_analytics),
             ("刷新", self._on_refresh),
-        ], start=1):
+        ], start=2):
             ctk.CTkButton(toolbar, text=text, width=60, command=cmd).grid(
                 row=0, column=i, padx=2, pady=5
             )
@@ -86,15 +96,15 @@ class App(ctk.CTk):
         sidebar.grid_propagate(False)
 
         # 项目列表
-        proj_label = ctk.CTkLabel(sidebar, text="项目", anchor="w", font=ctk.CTkFont(size=13, weight="bold"))
-        proj_label.grid(row=0, column=0, sticky="nw", padx=8, pady=(6, 0))
+        self._proj_label = ctk.CTkLabel(sidebar, text="项目", anchor="w", font=ctk.CTkFont(size=13, weight="bold"))
+        self._proj_label.grid(row=0, column=0, sticky="nw", padx=8, pady=(6, 0))
 
         self._project_frame = ctk.CTkScrollableFrame(sidebar, width=240)
         self._project_frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=(28, 2))
 
         # 会话列表
-        sess_label = ctk.CTkLabel(sidebar, text="会话", anchor="w", font=ctk.CTkFont(size=13, weight="bold"))
-        sess_label.grid(row=1, column=0, sticky="nw", padx=8, pady=(6, 0))
+        self._sess_label = ctk.CTkLabel(sidebar, text="会话", anchor="w", font=ctk.CTkFont(size=13, weight="bold"))
+        self._sess_label.grid(row=1, column=0, sticky="nw", padx=8, pady=(6, 0))
 
         self._session_frame = ctk.CTkScrollableFrame(sidebar, width=240)
         self._session_frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=(28, 4))
@@ -128,7 +138,42 @@ class App(ctk.CTk):
                                            font=ctk.CTkFont(size=11))
         self._status_label.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 4))
 
-    # ── 数据加载 ──────────────────────────────────────────
+    # ── 数据源切换 ────────────────────────────────────────
+
+    def _on_source_switch(self, value):
+        self._clear_content()
+        if value == "Claude Code":
+            self._source = "claude"
+            self._proj_label.configure(text="项目")
+            self._sess_label.configure(text="会话")
+            self._load_projects()
+        else:
+            self._source = "codex"
+            self._proj_label.configure(text="Codex 会话")
+            self._sess_label.configure(text="详情")
+            self._current_project = None
+            self._current_session_id = None
+            self._current_codex_path = None
+            self._status_label.configure(text="加载 Codex 会话...")
+            threading.Thread(target=self._load_codex_sessions, daemon=True).start()
+
+    def _clear_content(self):
+        """清空侧边栏和内容区"""
+        for btn in self._project_buttons:
+            btn.destroy()
+        self._project_buttons.clear()
+        for btn in self._session_buttons:
+            btn.destroy()
+        self._session_buttons.clear()
+        self._current_project = None
+        self._current_session_id = None
+        self._current_codex_path = None
+        self._info_label.configure(text="选择一个会话查看详情")
+        self._textbox.configure(state="normal")
+        self._textbox.delete("1.0", "end")
+        self._textbox.configure(state="disabled")
+
+    # ── Claude Code 数据加载 ──────────────────────────────
 
     def _load_projects(self):
         projects = db.list_projects()
@@ -203,6 +248,110 @@ class App(ctk.CTk):
 
         self._textbox.configure(state="disabled")
 
+    # ── Codex 数据加载 ────────────────────────────────────
+
+    def _load_codex_sessions(self):
+        sessions = db.list_codex_sessions()
+        self.after(0, lambda: self._render_codex_sessions(sessions))
+
+    def _render_codex_sessions(self, sessions):
+        for btn in self._project_buttons:
+            btn.destroy()
+        self._project_buttons.clear()
+        for btn in self._session_buttons:
+            btn.destroy()
+        self._session_buttons.clear()
+
+        for s in sessions:
+            title = s["title"][:45]
+            label = f"{s['modified']}  {title}"
+            path = s["path"]
+            btn = ctk.CTkButton(
+                self._project_frame, text=label, anchor="w",
+                fg_color="transparent", hover_color=("gray75", "gray30"),
+                font=ctk.CTkFont(size=11),
+                command=lambda p=path: self._on_codex_session_select(p),
+            )
+            btn.pack(fill="x", padx=2, pady=1)
+            btn._codex_path = str(path)
+            btn.bind("<Button-3>", lambda e, p=path: self._show_codex_menu(e, p))
+            self._project_buttons.append(btn)
+
+        self._status_label.configure(text=f"Codex: 共 {len(sessions)} 个会话")
+
+    def _on_codex_session_select(self, filepath):
+        self._current_codex_path = filepath
+
+        # 高亮
+        for btn in self._project_buttons:
+            if btn._codex_path == str(filepath):
+                btn.configure(fg_color=("gray70", "gray35"))
+            else:
+                btn.configure(fg_color="transparent")
+
+        self._load_codex_detail(filepath)
+
+    def _load_codex_detail(self, filepath):
+        data = db.get_codex_session_detail(filepath)
+        if not data:
+            self._info_label.configure(text="无法加载 Codex 会话")
+            return
+
+        model = data.get("model") or "未知"
+        cwd = data.get("cwd") or "未知"
+        msg_count = len(data["messages"])
+        self._info_label.configure(
+            text=f"Codex  |  目录: {cwd}  |  模型: {model}  |  消息: {msg_count}"
+        )
+
+        self._textbox.configure(state="normal")
+        self._textbox.delete("1.0", "end")
+        tw = self._textbox._textbox
+
+        for msg in data["messages"]:
+            role_label = "You" if msg["role"] == "user" else "Codex"
+            tag = "role_user" if msg["role"] == "user" else "role_assistant"
+
+            tw.insert("end", f"--- {role_label} ---\n", tag)
+            tw.insert("end", msg["content"] + "\n\n")
+
+        self._textbox.configure(state="disabled")
+
+    def _show_codex_menu(self, event, filepath):
+        menu = tk.Menu(self, tearoff=0)
+        menu.configure(bg="#2b2b2b", fg="white", activebackground="#3a7ebf",
+                       activeforeground="white", relief="flat")
+        menu.add_command(label="删除", command=lambda: self._delete_codex_session(filepath))
+        menu.add_separator()
+        session_id = Path(filepath).stem
+        menu.add_command(label="分析", command=lambda: self._analyze_codex_session(session_id))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _analyze_codex_session(self, session_id):
+        from claude_chat.analytics import AnalyticsWindow
+        AnalyticsWindow(self, session_id=session_id, source="codex")
+
+    def _delete_codex_session(self, filepath):
+        name = Path(filepath).stem[:30]
+        self._show_confirm_dialog(
+            f"确定删除 Codex 会话 {name}... ?",
+            lambda: self._do_delete_codex_session(filepath),
+        )
+
+    def _do_delete_codex_session(self, filepath):
+        ok = db.delete_codex_session(filepath)
+        if ok:
+            self._status_label.configure(text="已删除 Codex 会话")
+            if self._current_codex_path == filepath:
+                self._current_codex_path = None
+                self._info_label.configure(text="选择一个会话查看详情")
+                self._textbox.configure(state="normal")
+                self._textbox.delete("1.0", "end")
+                self._textbox.configure(state="disabled")
+            threading.Thread(target=self._load_codex_sessions, daemon=True).start()
+        else:
+            self._status_label.configure(text="删除失败")
+
     # ── 交互事件 ──────────────────────────────────────────
 
     def _on_project_select(self, dirname):
@@ -231,6 +380,10 @@ class App(ctk.CTk):
         self._load_detail(session_id)
 
     def _on_search(self):
+        if self._source == "codex":
+            self._status_label.configure(text="Codex 暂不支持搜索")
+            return
+
         keyword = self._search_entry.get().strip()
         if not keyword:
             return
@@ -277,22 +430,41 @@ class App(ctk.CTk):
         self._current_project = None
 
     def _on_export(self):
+        if self._source == "codex":
+            self._status_label.configure(text="Codex 暂不支持导出")
+            return
         if not self._current_session_id:
             self._status_label.configure(text="请先选择一个会话")
             return
         self._export_session(self._current_session_id)
 
     def _on_delete(self):
+        if self._source == "codex":
+            if self._current_codex_path:
+                self._delete_codex_session(self._current_codex_path)
+            else:
+                self._status_label.configure(text="请先选择一个 Codex 会话")
+            return
         if not self._current_session_id:
             self._status_label.configure(text="请先选择一个会话")
             return
         self._delete_session(self._current_session_id)
 
     def _on_analytics(self):
+        if self._source == "codex":
+            from claude_chat.analytics import AnalyticsWindow
+            AnalyticsWindow(self, source="codex")
+            return
         from claude_chat.analytics import AnalyticsWindow
         AnalyticsWindow(self)
 
     def _on_refresh(self):
+        if self._source == "codex":
+            self._clear_content()
+            self._status_label.configure(text="加载 Codex 会话...")
+            threading.Thread(target=self._load_codex_sessions, daemon=True).start()
+            return
+
         db._session_project_cache = None
         db._first_message_cache = None
         db._token_stats_cache = None

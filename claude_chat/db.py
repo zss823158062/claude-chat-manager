@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from datetime import datetime
-from .config import PROJECTS_DIR, HISTORY_FILE
+from .config import PROJECTS_DIR, HISTORY_FILE, CODEX_SESSIONS_DIR
 
 
 _session_project_cache = None
@@ -356,4 +356,179 @@ def collect_session_activity():
             "date": dt.strftime("%Y-%m-%d"),
         })
     _activity_cache = records
+    return records
+
+
+# ── Codex 会话管理 ──────────────────────────────────────────
+
+
+def list_codex_sessions():
+    """列出所有 Codex 会话文件"""
+    if not CODEX_SESSIONS_DIR.exists():
+        return []
+
+    results = []
+    for f in sorted(CODEX_SESSIONS_DIR.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+        session_id = f.stem
+        stat = f.stat()
+        meta = _parse_codex_meta(f)
+        results.append({
+            "session_id": session_id,
+            "path": f,
+            "cwd": meta.get("cwd", ""),
+            "model": meta.get("model", ""),
+            "title": meta.get("first_user_msg", session_id[:30]),
+            "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+            "size_kb": round(stat.st_size / 1024, 1),
+        })
+    return results
+
+
+def _parse_codex_meta(filepath):
+    """快速解析 Codex session 文件的元信息"""
+    meta = {}
+    with open(filepath, encoding="utf-8") as f:
+        for line in f:
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if obj.get("type") == "session_meta":
+                payload = obj.get("payload", {})
+                meta["cwd"] = payload.get("cwd", "")
+                meta["id"] = payload.get("id", "")
+            if obj.get("type") == "turn_context":
+                payload = obj.get("payload", {})
+                meta["model"] = payload.get("model", "")
+            if obj.get("type") == "event_msg":
+                payload = obj.get("payload", {})
+                if payload.get("type") == "user_message" and "first_user_msg" not in meta:
+                    msg = payload.get("message", "")
+                    if msg and not msg.startswith("/"):
+                        meta["first_user_msg"] = msg[:80]
+            if "cwd" in meta and "model" in meta and "first_user_msg" in meta:
+                break
+    return meta
+
+
+def get_codex_session_detail(filepath):
+    """解析 Codex session 文件，返回消息列表和元信息"""
+    messages = []
+    model = None
+    cwd = None
+
+    with open(filepath, encoding="utf-8") as f:
+        for line in f:
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if obj.get("type") == "session_meta":
+                cwd = obj.get("payload", {}).get("cwd", "")
+
+            if obj.get("type") == "turn_context" and not model:
+                model = obj.get("payload", {}).get("model", "")
+
+            if obj.get("type") == "event_msg":
+                payload = obj.get("payload", {})
+                if payload.get("type") == "user_message":
+                    text = payload.get("message", "")
+                    if text.strip():
+                        messages.append({"role": "user", "content": text})
+                elif payload.get("type") == "agent_message":
+                    text = payload.get("message", "")
+                    if text.strip():
+                        messages.append({"role": "assistant", "content": text})
+
+    return {
+        "messages": messages,
+        "model": model,
+        "cwd": cwd,
+        "path": filepath,
+    }
+
+
+def delete_codex_session(filepath):
+    """删除 Codex 会话文件"""
+    p = Path(filepath)
+    if p.exists():
+        p.unlink()
+        return True
+    return False
+
+
+def collect_codex_token_stats():
+    """遍历所有 Codex JSONL，提取每次请求的 token 用量"""
+    if not CODEX_SESSIONS_DIR.exists():
+        return []
+
+    records = []
+    for f in CODEX_SESSIONS_DIR.rglob("*.jsonl"):
+        session_id = f.stem
+        model = None
+        cwd = None
+        with open(f, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("type") == "session_meta":
+                    cwd = obj.get("payload", {}).get("cwd", "")
+                if obj.get("type") == "turn_context" and not model:
+                    model = obj.get("payload", {}).get("model", "")
+                if obj.get("type") == "event_msg":
+                    payload = obj.get("payload", {})
+                    if payload.get("type") == "token_count":
+                        info = payload.get("info")
+                        if not info:
+                            continue
+                        usage = info.get("last_token_usage", {})
+                        if not usage or usage.get("input_tokens", 0) == 0:
+                            continue
+                        ts = obj.get("timestamp", "")
+                        records.append({
+                            "session_id": session_id,
+                            "project": cwd or "",
+                            "model": model or "unknown",
+                            "timestamp": ts,
+                            "input_tokens": usage.get("input_tokens", 0),
+                            "output_tokens": usage.get("output_tokens", 0),
+                            "cached_input_tokens": usage.get("cached_input_tokens", 0),
+                            "reasoning_output_tokens": usage.get("reasoning_output_tokens", 0),
+                        })
+    return records
+
+
+def collect_codex_activity():
+    """从 Codex session 文件提取活动时间线"""
+    if not CODEX_SESSIONS_DIR.exists():
+        return []
+
+    records = []
+    for f in CODEX_SESSIONS_DIR.rglob("*.jsonl"):
+        session_id = f.stem
+        with open(f, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("type") == "event_msg":
+                    payload = obj.get("payload", {})
+                    if payload.get("type") == "user_message":
+                        ts = obj.get("timestamp", "")
+                        if ts:
+                            # ISO 格式: 2026-02-23T08:14:26.822Z
+                            try:
+                                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                                records.append({
+                                    "session_id": session_id,
+                                    "timestamp": ts,
+                                    "hour": dt.hour,
+                                    "date": dt.strftime("%Y-%m-%d"),
+                                })
+                            except (ValueError, AttributeError):
+                                continue
     return records

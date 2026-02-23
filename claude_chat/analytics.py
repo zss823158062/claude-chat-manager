@@ -181,23 +181,25 @@ def draw_pie_chart(canvas, data, colors=None, title=""):
 
 
 class AnalyticsWindow(ctk.CTkToplevel):
-    def __init__(self, master, project_dirname=None, session_id=None):
+    def __init__(self, master, project_dirname=None, session_id=None, source="claude"):
         super().__init__(master)
         self.geometry("900x650")
         self.transient(master)
 
         self._project_dirname = project_dirname
         self._session_id = session_id
+        self._source = source  # "claude" or "codex"
         self._token_records = []
         self._activity_records = []
 
         # 窗口标题
+        prefix = "Codex" if source == "codex" else "Claude"
         if session_id:
-            self.title(f"数据分析 - 会话 {session_id[:8]}")
+            self.title(f"数据分析 - {prefix} 会话 {session_id[:8]}")
         elif project_dirname:
-            self.title(f"数据分析 - 项目")
+            self.title(f"数据分析 - {prefix} 项目")
         else:
-            self.title("数据分析 - 全局")
+            self.title(f"数据分析 - {prefix} 全局")
 
         # 加载提示
         self._loading_label = ctk.CTkLabel(self, text="正在分析...",
@@ -207,8 +209,12 @@ class AnalyticsWindow(ctk.CTkToplevel):
         threading.Thread(target=self._load_data, daemon=True).start()
 
     def _load_data(self):
-        token_records = db.collect_token_stats()
-        activity_records = db.collect_session_activity()
+        if self._source == "codex":
+            token_records = db.collect_codex_token_stats()
+            activity_records = db.collect_codex_activity()
+        else:
+            token_records = db.collect_token_stats()
+            activity_records = db.collect_session_activity()
 
         # 按范围过滤
         if self._session_id:
@@ -218,13 +224,12 @@ class AnalyticsWindow(ctk.CTkToplevel):
                                if r["session_id"] == self._session_id]
         elif self._project_dirname:
             token_records = [r for r in token_records
-                            if r["project_dirname"] == self._project_dirname]
-            # activity_records 没有 project_dirname，用 project 名匹配
+                            if r.get("project_dirname") == self._project_dirname]
             project_names = {r["project"] for r in token_records}
             session_ids = {r["session_id"] for r in token_records}
             activity_records = [r for r in activity_records
                                if r["session_id"] in session_ids
-                               or r["project"] in project_names]
+                               or r.get("project") in project_names]
 
         self._token_records = token_records
         self._activity_records = activity_records
